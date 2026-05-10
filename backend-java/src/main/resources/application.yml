@@ -1,0 +1,18 @@
+server:
+  port: 8000
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: myebizz-backend-java
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
