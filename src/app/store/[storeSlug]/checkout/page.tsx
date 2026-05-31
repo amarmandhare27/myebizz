@@ -3,10 +3,10 @@
 import { use, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { CreditCard, Smartphone, Package, ChevronDown, ChevronUp, Lock } from "lucide-react";
+import { CreditCard, Smartphone, Package, ChevronDown, ChevronUp, Lock, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,8 @@ import { useCartStore } from "@/store/cartStore";
 import { useToast } from "@/components/ui/toast";
 import { checkoutSchema, CheckoutFormData } from "@/lib/validators";
 import { formatCurrency } from "@/lib/utils";
+import { StripePaymentForm } from "@/components/payments/StripePaymentForm";
+import { RazorpayPaymentForm } from "@/components/payments/RazorpayPaymentForm";
 
 const PAYMENT_METHODS = [
   { id: "stripe", label: "Credit / Debit Card", icon: CreditCard, description: "Visa, Mastercard, Amex" },
@@ -80,8 +82,10 @@ export default function CheckoutPage({ params }: { params: Promise<{ storeSlug: 
   const [billingSame, setBillingSame] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSummaryOpen, setOrderSummaryOpen] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [checkoutData, setCheckoutData] = useState<CheckoutFormData | null>(null);
 
-  const { getCartItems, getSubtotal, getDiscount, getTotal, clearCart } = useCartStore();
+  const { getCartItems, getSubtotal, getDiscount, getTotal, clearCart, couponCode } = useCartStore();
   const { addToast } = useToast();
 
   const items = getCartItems(storeSlug);
@@ -94,6 +98,7 @@ export default function CheckoutPage({ params }: { params: Promise<{ storeSlug: 
     register,
     handleSubmit,
     formState: { errors },
+    getValues,
   } = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
@@ -103,18 +108,100 @@ export default function CheckoutPage({ params }: { params: Promise<{ storeSlug: 
   });
 
   const onSubmit = async (data: CheckoutFormData) => {
+    if (data.paymentMethod === "cod") {
+      // Direct order creation for COD
+      setIsSubmitting(true);
+      try {
+        const response = await fetch(`/api/checkout`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            checkoutData: data,
+            items,
+            couponCode: couponCode[storeSlug],
+            paymentMethod: "cod",
+          }),
+        });
+
+        const result = await response.json();
+        if (result.success) {
+          clearCart(storeSlug);
+          router.push(`/store/${storeSlug}/order-success?orderId=${result.order.id}`);
+          addToast({
+            title: "Order Created",
+            description: "Your order has been placed",
+            variant: "success",
+          });
+        } else {
+          addToast({
+            title: "Order Failed",
+            description: result.error || "Failed to create order",
+            variant: "error",
+          });
+        }
+      } catch (error) {
+        addToast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to create order",
+          variant: "error",
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
+    } else {
+      // Show payment modal for Stripe/Razorpay
+      setCheckoutData(data);
+      setShowPaymentModal(true);
+    }
+  };
+
+  const handlePaymentSuccess = async (paymentId: string) => {
+    if (!checkoutData) return;
+
     setIsSubmitting(true);
     try {
-      // Simulate order placement
-      await new Promise((r) => setTimeout(r, 2000));
-      const orderId = `ORD-${Date.now().toString(36).toUpperCase()}`;
-      clearCart(storeSlug);
-      router.push(`/store/${storeSlug}/order-success?orderId=${orderId}`);
-    } catch {
-      addToast({ title: "Order failed", description: "Please try again", variant: "error" });
+      const response = await fetch(`/api/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkoutData,
+          items,
+          couponCode: couponCode[storeSlug],
+          paymentMethod: selectedPayment,
+          ...(selectedPayment === "stripe" && { paymentIntentId: paymentId }),
+          ...(selectedPayment === "razorpay" && { razorpayPaymentId: paymentId }),
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        clearCart(storeSlug);
+        router.push(`/store/${storeSlug}/order-success?orderId=${result.order.id}`);
+      } else {
+        addToast({
+          title: "Order Failed",
+          description: result.error || "Failed to create order",
+          variant: "error",
+        });
+      }
+    } catch (error) {
+      addToast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create order",
+        variant: "error",
+      });
     } finally {
       setIsSubmitting(false);
+      setShowPaymentModal(false);
     }
+  };
+
+  const handlePaymentError = (error: string) => {
+    addToast({
+      title: "Payment Error",
+      description: error,
+      variant: "error",
+    });
   };
 
   return (
@@ -216,9 +303,25 @@ export default function CheckoutPage({ params }: { params: Promise<{ storeSlug: 
               </div>
 
               {selectedPayment === "stripe" && (
-                <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-                  <p className="text-sm text-muted-foreground text-center">
-                    You&apos;ll be redirected to Stripe&apos;s secure payment page
+                <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <p className="text-sm text-blue-700 dark:text-blue-300 text-center">
+                    ✓ Stripe uses bank-level security with PCI DSS compliance
+                  </p>
+                </div>
+              )}
+
+              {selectedPayment === "razorpay" && (
+                <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-950 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <p className="text-sm text-purple-700 dark:text-purple-300 text-center">
+                    ✓ Razorpay supports UPI, NetBanking, Wallets & International cards
+                  </p>
+                </div>
+              )}
+
+              {selectedPayment === "cod" && (
+                <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-950 rounded-lg border border-amber-200 dark:border-amber-800">
+                  <p className="text-sm text-amber-700 dark:text-amber-300 text-center">
+                    Pay cash when your order is delivered
                   </p>
                 </div>
               )}
@@ -314,6 +417,63 @@ export default function CheckoutPage({ params }: { params: Promise<{ storeSlug: 
           </div>
         </div>
       </form>
+
+      {/* Payment Modal */}
+      <AnimatePresence>
+        {showPaymentModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-background rounded-xl border p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold">
+                  {selectedPayment === "stripe" ? "Pay with Card" : "Pay with Razorpay"}
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setIsSubmitting(false);
+                  }}
+                  className="p-1 hover:bg-muted rounded-lg"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="mb-6 p-4 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">Amount to pay:</p>
+                <p className="text-2xl font-bold">{formatCurrency(total + shipping, "INR")}</p>
+              </div>
+
+              {selectedPayment === "stripe" && checkoutData && (
+                <StripePaymentForm
+                  storeSlug={storeSlug}
+                  amount={total + shipping}
+                  onSuccess={handlePaymentSuccess}
+                  onError={handlePaymentError}
+                  isLoading={isSubmitting}
+                />
+              )}
+
+              {selectedPayment === "razorpay" && checkoutData && (
+                <RazorpayPaymentForm
+                  storeSlug={storeSlug}
+                  amount={total + shipping}
+                  customerEmail={checkoutData.shippingAddress.fullName}
+                  customerPhone={checkoutData.shippingAddress.phone}
+                  customerName={checkoutData.shippingAddress.fullName}
+                  onSuccess={handlePaymentSuccess}
+                  onError={handlePaymentError}
+                  isLoading={isSubmitting}
+                />
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

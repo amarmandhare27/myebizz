@@ -1,0 +1,16 @@
+# Production profile — activated with: SPRING_PROFILES_ACTIVE=prod
+# Set DATABASE_URL as environment variable in Railway/Render/Vercel
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  h2:
+    console:
+      enabled: false

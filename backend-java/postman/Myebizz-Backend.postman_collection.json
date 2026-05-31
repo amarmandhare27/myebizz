@@ -1,0 +1,90 @@
+{
+  "info": {
+    "_postman_id": "6f9c52d6-9e0f-4b6d-8d9f-5b2f0b3a4b11",
+    "name": "Myebizz Backend",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Postman collection for the Myebizz Java backend scaffold."
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {"name": "Login","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"email\": \"admin@demo.com\",\n  \"password\": \"admin123\"\n}"},"url": {"raw": "{{baseUrl}}/auth/login","host": ["{{baseUrl}}"],"path": ["auth","login"]}}},
+        {"name": "Admin Login","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"email\": \"superadmin@demo.com\",\n  \"password\": \"super123\"\n}"},"url": {"raw": "{{baseUrl}}/auth/admin/login","host": ["{{baseUrl}}"],"path": ["auth","admin","login"]}}},
+        {"name": "Signup","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"name\": \"New User\",\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\"\n}"},"url": {"raw": "{{baseUrl}}/auth/signup","host": ["{{baseUrl}}"],"path": ["auth","signup"]}}},
+        {"name": "Forgot Password","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"email\": \"user@demo.com\"\n}"},"url": {"raw": "{{baseUrl}}/auth/forgot-password","host": ["{{baseUrl}}"],"path": ["auth","forgot-password"]}}},
+        {"name": "Reset Password","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"token\": \"reset-demo-token\",\n  \"password\": \"newpassword123\"\n}"},"url": {"raw": "{{baseUrl}}/auth/reset-password","host": ["{{baseUrl}}"],"path": ["auth","reset-password"]}}},
+        {"name": "Refresh Token","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"refreshToken\": \"refresh-demo-token\"\n}"},"url": {"raw": "{{baseUrl}}/auth/refresh","host": ["{{baseUrl}}"],"path": ["auth","refresh"]}}},
+        {"name": "Logout","request": {"method": "POST","header": [],"url": {"raw": "{{baseUrl}}/auth/logout","host": ["{{baseUrl}}"],"path": ["auth","logout"]}}},
+        {"name": "Me","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/auth/me","host": ["{{baseUrl}}"],"path": ["auth","me"]}}}
+      ]
+    },
+    {
+      "name": "Public Store",
+      "item": [
+        {"name": "Get Store","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/stores/demo","host": ["{{baseUrl}}"],"path": ["stores","demo"]}}},
+        {"name": "Store Products","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/stores/demo/products?page=1&limit=12","host": ["{{baseUrl}}"],"path": ["stores","demo","products"],"query": [{"key": "page","value": "1"},{"key": "limit","value": "12"}]}}},
+        {"name": "Featured Products","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/stores/demo/products/featured","host": ["{{baseUrl}}"],"path": ["stores","demo","products","featured"]}}},
+        {"name": "Product By Slug","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/stores/demo/products/premium-graphic-tee","host": ["{{baseUrl}}"],"path": ["stores","demo","products","premium-graphic-tee"]}}},
+        {"name": "Related Products","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/stores/demo/products/101/related","host": ["{{baseUrl}}"],"path": ["stores","demo","products","101","related"]}}},
+        {"name": "Verify Coupon","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"code\": \"SAVE20\",\n  \"orderAmount\": 1499\n}"},"url": {"raw": "{{baseUrl}}/stores/demo/coupons/verify","host": ["{{baseUrl}}"],"path": ["stores","demo","coupons","verify"]}}},
+        {"name": "Create Order","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"customerName\": \"Priya Sharma\",\n  \"paymentMethod\": \"razorpay\",\n  \"total\": 1499,\n  \"shippingAddress\": {\n    \"fullName\": \"Priya Sharma\",\n    \"phone\": \"+91 98765 43210\",\n    \"addressLine1\": \"123 Main Street\",\n    \"city\": \"Mumbai\",\n    \"state\": \"Maharashtra\",\n    \"zipCode\": \"400001\",\n    \"country\": \"India\"\n  },\n  \"items\": []\n}"},"url": {"raw": "{{baseUrl}}/stores/demo/orders","host": ["{{baseUrl}}"],"path": ["stores","demo","orders"]}}},
+        {"name": "Stripe Intent","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"amount\": 1499,\n  \"currency\": \"INR\"\n}"},"url": {"raw": "{{baseUrl}}/stores/demo/payments/stripe/intent","host": ["{{baseUrl}}"],"path": ["stores","demo","payments","stripe","intent"]}}},
+        {"name": "Razorpay Order","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"amount\": 1499,\n  \"currency\": \"INR\"\n}"},"url": {"raw": "{{baseUrl}}/stores/demo/payments/razorpay/order","host": ["{{baseUrl}}"],"path": ["stores","demo","payments","razorpay","order"]}}}
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {"name": "Get Order By Id","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/orders/ORD-001","host": ["{{baseUrl}}"],"path": ["orders","ORD-001"]}}},
+        {"name": "My Orders","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/orders/my?page=1&limit=10","host": ["{{baseUrl}}"],"path": ["orders","my"],"query": [{"key": "page","value": "1"},{"key": "limit","value": "10"}]}}}
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {"name": "Admin Store","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/admin/store","host": ["{{baseUrl}}"],"path": ["admin","store"]}}},
+        {"name": "Update Store Settings","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"storeName\": \"My Awesome Store\",\n  \"tagline\": \"Premium merchandise for true fans\"\n}"},"url": {"raw": "{{baseUrl}}/admin/store/settings","host": ["{{baseUrl}}"],"path": ["admin","store","settings"]}}},
+        {"name": "Analytics","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/admin/store/analytics?period=30d","host": ["{{baseUrl}}"],"path": ["admin","store","analytics"],"query": [{"key": "period","value": "30d"}]}}},
+        {"name": "List Coupons","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/admin/store/coupons","host": ["{{baseUrl}}"],"path": ["admin","store","coupons"]}}},
+        {"name": "Create Coupon","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"code\": \"WELCOME15\",\n  \"discountType\": \"percentage\",\n  \"discountValue\": 15,\n  \"minOrderAmount\": 499,\n  \"maxUses\": 200,\n  \"isActive\": true,\n  \"expiresAt\": \"2026-12-31\"\n}"},"url": {"raw": "{{baseUrl}}/admin/store/coupons","host": ["{{baseUrl}}"],"path": ["admin","store","coupons"]}}},
+        {"name": "Update Coupon","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"isActive\": false\n}"},"url": {"raw": "{{baseUrl}}/admin/store/coupons/C1","host": ["{{baseUrl}}"],"path": ["admin","store","coupons","C1"]}}},
+        {"name": "Delete Coupon","request": {"method": "DELETE","header": [],"url": {"raw": "{{baseUrl}}/admin/store/coupons/C1","host": ["{{baseUrl}}"],"path": ["admin","store","coupons","C1"]}}},
+        {"name": "Admin Products","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/admin/stores/1/products?page=1&limit=10","host": ["{{baseUrl}}"],"path": ["admin","stores","1","products"],"query": [{"key": "page","value": "1"},{"key": "limit","value": "10"}]}}},
+        {"name": "Create Product","request": {"method": "POST","header": [],"body": {"mode": "formdata","formdata": [{"key": "name","value": "Test Product","type": "text"},{"key": "category","value": "Tops","type": "text"},{"key": "price","value": "999","type": "text"},{"key": "stock","value": "50","type": "text"}]},"url": {"raw": "{{baseUrl}}/admin/stores/1/products","host": ["{{baseUrl}}"],"path": ["admin","stores","1","products"]}}},
+        {"name": "Update Product","request": {"method": "PUT","header": [],"body": {"mode": "formdata","formdata": [{"key": "name","value": "Updated Product","type": "text"},{"key": "price","value": "1199","type": "text"}]},"url": {"raw": "{{baseUrl}}/admin/stores/1/products/101","host": ["{{baseUrl}}"],"path": ["admin","stores","1","products","101"]}}},
+        {"name": "Delete Product","request": {"method": "DELETE","header": [],"url": {"raw": "{{baseUrl}}/admin/stores/1/products/101","host": ["{{baseUrl}}"],"path": ["admin","stores","1","products","101"]}}},
+        {"name": "Admin Orders","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/admin/stores/1/orders?page=1&limit=10","host": ["{{baseUrl}}"],"path": ["admin","stores","1","orders"],"query": [{"key": "page","value": "1"},{"key": "limit","value": "10"}]}}},
+        {"name": "Update Order Status","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"status\": \"shipped\",\n  \"trackingNumber\": \"TRK123456\"\n}"},"url": {"raw": "{{baseUrl}}/admin/stores/1/orders/ORD-001/status","host": ["{{baseUrl}}"],"path": ["admin","stores","1","orders","ORD-001","status"]}}}
+      ]
+    },
+    {
+      "name": "Super Admin",
+      "item": [
+        {"name": "Stats","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/super-admin/stats","host": ["{{baseUrl}}"],"path": ["super-admin","stats"]}}},
+        {"name": "Stores","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/super-admin/stores?page=1&limit=10","host": ["{{baseUrl}}"],"path": ["super-admin","stores"],"query": [{"key": "page","value": "1"},{"key": "limit","value": "10"}]}}},
+        {"name": "Create Store","request": {"method": "POST","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"storeName\": \"New Creator Store\",\n  \"storeSlug\": \"new-creator-store\",\n  \"ownerName\": \"Creator Name\",\n  \"ownerEmail\": \"creator@example.com\",\n  \"password\": \"temp1234\"\n}"},"url": {"raw": "{{baseUrl}}/super-admin/stores","host": ["{{baseUrl}}"],"path": ["super-admin","stores"]}}},
+        {"name": "Update Store Status","request": {"method": "PUT","header": [{"key": "Content-Type","value": "application/json"}],"body": {"mode": "raw","raw": "{\n  \"status\": \"suspended\"\n}"},"url": {"raw": "{{baseUrl}}/super-admin/stores/2/status","host": ["{{baseUrl}}"],"path": ["super-admin","stores","2","status"]}}},
+        {"name": "Delete Store","request": {"method": "DELETE","header": [],"url": {"raw": "{{baseUrl}}/super-admin/stores/2","host": ["{{baseUrl}}"],"path": ["super-admin","stores","2"]}}},
+        {"name": "Clients","request": {"method": "GET","header": [],"url": {"raw": "{{baseUrl}}/super-admin/clients?page=1&limit=20","host": ["{{baseUrl}}"],"path": ["super-admin","clients"],"query": [{"key": "page","value": "1"},{"key": "limit","value": "20"}]}}}
+      ]
+    }
+  ]
+}

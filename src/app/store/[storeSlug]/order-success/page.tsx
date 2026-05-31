@@ -1,25 +1,47 @@
 "use client";
 
-import { use } from "react";
-import { motion } from "framer-motion";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Package, Truck, MapPin, ArrowRight, Download } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { CheckCircle2, Package, Truck, MapPin, Mail, Phone, Download } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { formatDate } from "@/lib/utils";
+import { ordersApi } from "@/lib/api/orders";
+import { Order } from "@/types";
+import { formatCurrency } from "@/lib/utils";
 
 export default function OrderSuccessPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ storeSlug: string }>;
-  searchParams: Promise<{ orderId?: string }>;
 }) {
   const { storeSlug } = use(params);
-  const resolvedSearchParams = use(searchParams);
-  const orderId = resolvedSearchParams.orderId || `ORD-${Date.now().toString(36).toUpperCase()}`;
-  const estimatedDelivery = new Date();
-  estimatedDelivery.setDate(estimatedDelivery.getDate() + 5);
+  const searchParams = useSearchParams();
+  const orderId = searchParams.get("orderId");
+
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!orderId) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchOrder = async () => {
+      try {
+        const data = await ordersApi.getOrder(orderId);
+        setOrder(data);
+      } catch (error) {
+        console.error("Failed to fetch order:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchOrder();
+  }, [orderId]);
 
   const steps = [
     { icon: CheckCircle2, label: "Order Placed", status: "done", date: formatDate(new Date().toISOString()) },

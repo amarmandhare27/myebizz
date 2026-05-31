@@ -1,11 +1,23 @@
 package com.myebizz.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myebizz.backend.entity.CouponEntity;
+import com.myebizz.backend.entity.OrderEntity;
+import com.myebizz.backend.entity.ProductEntity;
+import com.myebizz.backend.entity.StoreEntity;
+import com.myebizz.backend.entity.UserEntity;
+import com.myebizz.backend.repository.CouponRepository;
+import com.myebizz.backend.repository.OrderRepository;
+import com.myebizz.backend.repository.ProductRepository;
+import com.myebizz.backend.repository.StoreRepository;
+import com.myebizz.backend.repository.UserRepository;
+import jakarta.annotation.PostConstruct;
+import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -19,7 +31,15 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class DemoDataService {
+    // ── JPA repositories ──────────────────────────────────────────────────────
+    private final UserRepository userRepository;
+    private final StoreRepository storeRepository;
+    private final ProductRepository productRepository;
+    private final OrderRepository orderRepository;
+    private final CouponRepository couponRepository;
+    private final ObjectMapper objectMapper;
 
+    // ── In-memory cache (fast reads, populated from DB on startup) ────────────
     private final Map<String, Map<String, Object>> usersByEmail = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> storesBySlug = new ConcurrentHashMap<>();
     private final Map<String, List<Map<String, Object>>> productsByStoreSlug = new ConcurrentHashMap<>();
@@ -30,18 +50,67 @@ public class DemoDataService {
     private final AtomicLong orderIdSeq = new AtomicLong(1000);
     private final AtomicLong storeIdSeq = new AtomicLong(50);
 
-    public DemoDataService() {
-        seedUsers();
-        seedStores();
-        seedProducts();
-        seedOrders();
-        seedCoupons();
+    public DemoDataService(UserRepository userRepository,
+                           StoreRepository storeRepository,
+                           ProductRepository productRepository,
+                           OrderRepository orderRepository,
+                           CouponRepository couponRepository,
+                           ObjectMapper objectMapper) {
+        this.userRepository = userRepository;
+        this.storeRepository = storeRepository;
+        this.productRepository = productRepository;
+        this.orderRepository = orderRepository;
+        this.couponRepository = couponRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    @PostConstruct
+    public void init() {
+        loadFromDb();
+        if (usersByEmail.isEmpty()) {
+            seedUsers();
+            seedStores();
+            seedProducts();
+            seedOrders();
+            seedCoupons();
+        }
+        // Sync atomic sequences to DB max values so new IDs don't collide
+        productRepository.findAll().stream()
+                .mapToLong(p -> { try { return Long.parseLong(p.getId()); } catch (Exception e) { return 0L; } })
+                .max().ifPresent(max -> { if (max > productIdSeq.get()) productIdSeq.set(max); });
+        orderRepository.findAll().stream()
+                .mapToLong(o -> { try { return Long.parseLong(o.getId().replace("ORD-", "")); } catch (Exception e) { return 0L; } })
+                .max().ifPresent(max -> { if (max > orderIdSeq.get()) orderIdSeq.set(max); });
+        storeRepository.findAll().stream()
+                .mapToLong(s -> { try { return Long.parseLong(s.getId()); } catch (Exception e) { return 0L; } })
+                .max().ifPresent(max -> { if (max > storeIdSeq.get()) storeIdSeq.set(max); });
+    }
+
+    private void loadFromDb() {
+        userRepository.findAll().forEach(u -> usersByEmail.put(u.getEmail(), userToMap(u)));
+        storeRepository.findAll().forEach(s -> {
+            storesBySlug.put(s.getSlug(), storeToMap(s));
+            productsByStoreSlug.putIfAbsent(s.getSlug(), new ArrayList<>());
+            ordersByStoreSlug.putIfAbsent(s.getSlug(), new ArrayList<>());
+            couponsByStoreId.putIfAbsent(s.getId(), new ArrayList<>());
+        });
+        productRepository.findAll().forEach(p ->
+                productsByStoreSlug.computeIfAbsent(p.getStoreSlug(), k -> new ArrayList<>()).add(productToMap(p)));
+        orderRepository.findAll().forEach(o ->
+                ordersByStoreSlug.computeIfAbsent(o.getStoreSlug(), k -> new ArrayList<>()).add(orderToMap(o)));
+        couponRepository.findAll().forEach(c ->
+                couponsByStoreId.computeIfAbsent(c.getStoreId(), k -> new ArrayList<>()).add(couponToMap(c)));
     }
 
     private void seedUsers() {
-        usersByEmail.put("admin@demo.com", makeUser("1", "Admin User", "admin@demo.com", "admin", "admin123"));
-        usersByEmail.put("superadmin@demo.com", makeUser("2", "Super Admin", "superadmin@demo.com", "super_admin", "super123"));
-        usersByEmail.put("user@demo.com", makeUser("3", "Demo User", "user@demo.com", "user", "user123"));
+        persistAndCacheUser(makeUser("1", "Admin User", "admin@demo.com", "admin", "admin123"));
+        persistAndCacheUser(makeUser("2", "Super Admin", "superadmin@demo.com", "super_admin", "super123"));
+        persistAndCacheUser(makeUser("3", "Demo User", "user@demo.com", "user", "user123"));
+    }
+
+    private void persistAndCacheUser(Map<String, Object> user) {
+        usersByEmail.put(String.valueOf(user.get("email")), user);
+        userRepository.save(mapToUserEntity(user));
     }
 
     private Map<String, Object> makeUser(String id, String name, String email, String role, String password) {
@@ -92,10 +161,13 @@ public class DemoDataService {
     }
 
     private void addStore(Map<String, Object> store) {
-        storesBySlug.put(String.valueOf(store.get("slug")), store);
-        productsByStoreSlug.putIfAbsent(String.valueOf(store.get("slug")), new ArrayList<>());
-        ordersByStoreSlug.putIfAbsent(String.valueOf(store.get("slug")), new ArrayList<>());
-        couponsByStoreId.putIfAbsent(String.valueOf(store.get("id")), new ArrayList<>());
+        String slug = String.valueOf(store.get("slug"));
+        String id = String.valueOf(store.get("id"));
+        storesBySlug.put(slug, store);
+        productsByStoreSlug.putIfAbsent(slug, new ArrayList<>());
+        ordersByStoreSlug.putIfAbsent(slug, new ArrayList<>());
+        couponsByStoreId.putIfAbsent(id, new ArrayList<>());
+        storeRepository.save(mapToStoreEntity(store));
     }
 
     private void seedProducts() {
@@ -145,7 +217,9 @@ public class DemoDataService {
     }
 
     private void addProduct(String storeSlug, Map<String, Object> product) {
+        product.putIfAbsent("storeSlug", storeSlug);
         productsByStoreSlug.computeIfAbsent(storeSlug, k -> new ArrayList<>()).add(product);
+        productRepository.save(mapToProductEntity(product, storeSlug));
     }
 
     private void seedOrders() {
@@ -172,12 +246,17 @@ public class DemoDataService {
 
     private void addOrder(String storeSlug, Map<String, Object> order) {
         ordersByStoreSlug.computeIfAbsent(storeSlug, k -> new ArrayList<>()).add(order);
+        orderRepository.save(mapToOrderEntity(order, storeSlug));
     }
 
     private void seedCoupons() {
         List<Map<String, Object>> demoCoupons = couponsByStoreId.computeIfAbsent("1", k -> new ArrayList<>());
-        demoCoupons.add(makeCoupon("C1", "SAVE20", "percentage", 20.0, 500.0, 500, true, LocalDate.now().plusMonths(3).toString()));
-        demoCoupons.add(makeCoupon("C2", "FLAT100", "fixed", 100.0, 999.0, 200, true, LocalDate.now().plusMonths(1).toString()));
+        Map<String, Object> c1 = makeCoupon("C1", "SAVE20", "percentage", 20.0, 500.0, 500, true, LocalDate.now().plusMonths(3).toString());
+        Map<String, Object> c2 = makeCoupon("C2", "FLAT100", "fixed", 100.0, 999.0, 200, true, LocalDate.now().plusMonths(1).toString());
+        demoCoupons.add(c1);
+        demoCoupons.add(c2);
+        couponRepository.save(mapToCouponEntity(c1));
+        couponRepository.save(mapToCouponEntity(c2));
     }
 
     private Map<String, Object> makeCoupon(String id, String code, String type, Double value, Double minOrderAmount, int maxUses, boolean active, String expiresAt) {
@@ -231,8 +310,7 @@ public class DemoDataService {
         }
         String id = String.valueOf(usersByEmail.size() + 1);
         Map<String, Object> user = makeUser(id, name, normalized, "user", password);
-        usersByEmail.put(normalized, user);
-
+        persistAndCacheUser(user);
         Map<String, Object> authPayload = authenticate(normalized, password, false).orElseThrow();
         Map<String, Object> userPayload = new LinkedHashMap<>((Map<String, Object>) authPayload.get("user"));
         userPayload.put("accessToken", authPayload.get("accessToken"));
@@ -256,6 +334,7 @@ public class DemoDataService {
         Map<String, Object> store = storesBySlug.get("demo");
         store.putAll(updates);
         store.put("updatedAt", Instant.now().toString());
+        storeRepository.save(mapToStoreEntity(store));
         return new LinkedHashMap<>(store);
     }
 
@@ -287,6 +366,7 @@ public class DemoDataService {
                 String.valueOf(body.getOrDefault("expiresAt", LocalDate.now().plusMonths(1)))
         );
         couponsByStoreId.computeIfAbsent("1", k -> new ArrayList<>()).add(0, coupon);
+        couponRepository.save(mapToCouponEntity(coupon));
         return coupon;
     }
 
@@ -295,6 +375,7 @@ public class DemoDataService {
         for (Map<String, Object> coupon : coupons) {
             if (Objects.equals(String.valueOf(coupon.get("id")), couponId)) {
                 coupon.putAll(updates);
+                couponRepository.save(mapToCouponEntity(coupon));
                 return new LinkedHashMap<>(coupon);
             }
         }
@@ -304,6 +385,7 @@ public class DemoDataService {
     public void deleteAdminCoupon(String couponId) {
         List<Map<String, Object>> coupons = couponsByStoreId.getOrDefault("1", new ArrayList<>());
         coupons.removeIf(c -> Objects.equals(String.valueOf(c.get("id")), couponId));
+        couponRepository.deleteById(couponId);
     }
 
     public Map<String, Object> superAdminStats() {
@@ -393,6 +475,7 @@ public class DemoDataService {
         Map<String, Object> store = findStoreById(storeId);
         store.put("status", status);
         store.put("updatedAt", Instant.now().toString());
+        storeRepository.save(mapToStoreEntity(store));
         return new LinkedHashMap<>(store);
     }
 
@@ -403,6 +486,10 @@ public class DemoDataService {
         productsByStoreSlug.remove(slug);
         ordersByStoreSlug.remove(slug);
         couponsByStoreId.remove(String.valueOf(store.get("id")));
+        storeRepository.deleteById(storeId);
+        productRepository.deleteByStoreSlug(slug);
+        orderRepository.deleteByStoreSlug(slug);
+        couponRepository.deleteByStoreId(storeId);
     }
 
     private Map<String, Object> findStoreById(String storeId) {
@@ -449,14 +536,14 @@ public class DemoDataService {
         return productsByStoreSlug.getOrDefault(storeSlug, List.of()).stream()
                 .filter(p -> !Objects.equals(String.valueOf(p.get("id")), productId))
                 .limit(4)
-                .map(LinkedHashMap::new)
+                .map(product -> (Map<String, Object>) new LinkedHashMap<>(product))
                 .toList();
     }
 
     public List<Map<String, Object>> getFeaturedProducts(String storeSlug) {
         return productsByStoreSlug.getOrDefault(storeSlug, List.of()).stream()
                 .filter(p -> Boolean.TRUE.equals(p.get("isFeatured")))
-                .map(LinkedHashMap::new)
+                .map(product -> (Map<String, Object>) new LinkedHashMap<>(product))
                 .toList();
     }
 
@@ -490,6 +577,7 @@ public class DemoDataService {
             if (Objects.equals(String.valueOf(p.get("id")), productId)) {
                 p.putAll(body);
                 p.put("updatedAt", Instant.now().toString());
+                productRepository.save(mapToProductEntity(p, slug));
                 return new LinkedHashMap<>(p);
             }
         }
@@ -500,6 +588,7 @@ public class DemoDataService {
         String slug = String.valueOf(findStoreById(storeId).get("slug"));
         productsByStoreSlug.getOrDefault(slug, new ArrayList<>())
                 .removeIf(p -> Objects.equals(String.valueOf(p.get("id")), productId));
+        productRepository.deleteById(productId);
     }
 
     public Map<String, Object> createOrder(String storeSlug, Map<String, Object> body) {
@@ -596,6 +685,7 @@ public class DemoDataService {
                     o.put("trackingNumber", trackingNumber);
                 }
                 o.put("updatedAt", Instant.now().toString());
+                orderRepository.save(mapToOrderEntity(o, slug));
                 return new LinkedHashMap<>(o);
             }
         }
@@ -624,6 +714,247 @@ public class DemoDataService {
         return authenticate("admin@demo.com", "admin123", false)
                 .map(a -> (Map<String, Object>) a.get("user"))
                 .orElse(Map.of());
+    }
+
+    // ── Entity ↔ Map conversion helpers ──────────────────────────────────────
+
+    private Map<String, Object> userToMap(UserEntity u) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", u.getId());
+        m.put("name", u.getName());
+        m.put("email", u.getEmail());
+        m.put("role", u.getRole());
+        m.put("avatar", u.getAvatar());
+        m.put("password", u.getPassword());
+        return m;
+    }
+
+    private UserEntity mapToUserEntity(Map<String, Object> m) {
+        UserEntity e = new UserEntity();
+        e.setId(String.valueOf(m.get("id")));
+        e.setName(String.valueOf(m.get("name")));
+        e.setEmail(String.valueOf(m.get("email")));
+        e.setRole(String.valueOf(m.get("role")));
+        e.setAvatar(strOrNull(m.get("avatar")));
+        e.setPassword(String.valueOf(m.get("password")));
+        return e;
+    }
+
+    private Map<String, Object> storeToMap(StoreEntity s) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", s.getId());
+        m.put("slug", s.getSlug());
+        m.put("name", s.getName());
+        m.put("tagline", s.getTagline());
+        m.put("description", s.getDescription());
+        m.put("logoUrl", s.getLogoUrl());
+        m.put("bannerUrl", s.getBannerUrl());
+        m.put("primaryColor", s.getPrimaryColor());
+        m.put("secondaryColor", s.getSecondaryColor());
+        m.put("accentColor", s.getAccentColor());
+        m.put("ownerId", s.getOwnerId());
+        m.put("ownerName", s.getOwnerName());
+        m.put("ownerAvatar", s.getOwnerAvatar());
+        m.put("instagramHandle", s.getInstagramHandle());
+        m.put("twitterHandle", s.getTwitterHandle());
+        m.put("facebookHandle", s.getFacebookHandle());
+        m.put("youtubeHandle", s.getYoutubeHandle());
+        m.put("status", s.getStatus());
+        m.put("plan", s.getPlan());
+        m.put("currency", s.getCurrency());
+        m.put("country", s.getCountry());
+        m.put("orders", s.getOrders());
+        m.put("createdAt", s.getCreatedAt());
+        m.put("updatedAt", s.getUpdatedAt());
+        return m;
+    }
+
+    private StoreEntity mapToStoreEntity(Map<String, Object> m) {
+        StoreEntity e = new StoreEntity();
+        e.setId(String.valueOf(m.get("id")));
+        e.setSlug(String.valueOf(m.get("slug")));
+        e.setName(String.valueOf(m.get("name")));
+        e.setTagline(strOrNull(m.get("tagline")));
+        e.setDescription(strOrNull(m.get("description")));
+        e.setLogoUrl(strOrNull(m.get("logoUrl")));
+        e.setBannerUrl(strOrNull(m.get("bannerUrl")));
+        e.setPrimaryColor(strOrNull(m.get("primaryColor")));
+        e.setSecondaryColor(strOrNull(m.get("secondaryColor")));
+        e.setAccentColor(strOrNull(m.get("accentColor")));
+        e.setOwnerId(strOrNull(m.get("ownerId")));
+        e.setOwnerName(strOrNull(m.get("ownerName")));
+        e.setOwnerAvatar(strOrNull(m.get("ownerAvatar")));
+        e.setInstagramHandle(strOrNull(m.get("instagramHandle")));
+        e.setTwitterHandle(strOrNull(m.get("twitterHandle")));
+        e.setFacebookHandle(strOrNull(m.get("facebookHandle")));
+        e.setYoutubeHandle(strOrNull(m.get("youtubeHandle")));
+        e.setStatus(String.valueOf(m.get("status")));
+        e.setPlan(String.valueOf(m.get("plan")));
+        e.setCurrency(strOrNull(m.get("currency")));
+        e.setCountry(strOrNull(m.get("country")));
+        e.setOrders(m.get("orders") instanceof Number n ? n.intValue() : 0);
+        e.setCreatedAt(strOrNull(m.get("createdAt")));
+        e.setUpdatedAt(strOrNull(m.get("updatedAt")));
+        return e;
+    }
+
+    private Map<String, Object> productToMap(ProductEntity p) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", p.getId());
+        m.put("storeId", p.getStoreId());
+        m.put("name", p.getName());
+        m.put("slug", p.getSlug());
+        m.put("description", p.getDescription());
+        m.put("shortDescription", p.getShortDescription());
+        m.put("price", p.getPrice());
+        m.put("discountPrice", p.getDiscountPrice());
+        m.put("discountPercent", p.getDiscountPercent());
+        m.put("images", parseJsonList(p.getImagesJson()));
+        m.put("category", p.getCategory());
+        m.put("tags", parseJsonList(p.getTagsJson()));
+        m.put("variants", parseJsonList(p.getVariantsJson()));
+        m.put("stockCount", p.getStockCount());
+        m.put("sku", p.getSku());
+        m.put("isFeatured", p.getIsFeatured());
+        m.put("isPublished", p.getIsPublished());
+        m.put("rating", p.getRating());
+        m.put("reviewCount", p.getReviewCount());
+        m.put("soldCount", p.getSoldCount());
+        m.put("createdAt", p.getCreatedAt());
+        m.put("updatedAt", p.getUpdatedAt());
+        return m;
+    }
+
+    private ProductEntity mapToProductEntity(Map<String, Object> m, String storeSlug) {
+        ProductEntity e = new ProductEntity();
+        e.setId(String.valueOf(m.get("id")));
+        e.setStoreId(strOrNull(m.get("storeId")));
+        e.setStoreSlug(storeSlug);
+        e.setName(String.valueOf(m.get("name")));
+        e.setSlug(strOrNull(m.get("slug")));
+        e.setDescription(strOrNull(m.get("description")));
+        e.setShortDescription(strOrNull(m.get("shortDescription")));
+        e.setPrice(m.get("price") instanceof Number n ? n.doubleValue() : null);
+        e.setDiscountPrice(m.get("discountPrice") instanceof Number n ? n.doubleValue() : null);
+        e.setDiscountPercent(m.get("discountPercent") instanceof Number n ? n.intValue() : 0);
+        e.setImagesJson(toJsonString(m.get("images")));
+        e.setCategory(strOrNull(m.get("category")));
+        e.setTagsJson(toJsonString(m.get("tags")));
+        e.setVariantsJson(toJsonString(m.get("variants")));
+        e.setStockCount(m.get("stockCount") instanceof Number n ? n.intValue() : 0);
+        e.setSku(strOrNull(m.get("sku")));
+        e.setIsFeatured(Boolean.TRUE.equals(m.get("isFeatured")));
+        e.setIsPublished(Boolean.TRUE.equals(m.get("isPublished")));
+        e.setRating(m.get("rating") instanceof Number n ? n.doubleValue() : 0.0);
+        e.setReviewCount(m.get("reviewCount") instanceof Number n ? n.intValue() : 0);
+        e.setSoldCount(m.get("soldCount") instanceof Number n ? n.intValue() : 0);
+        e.setCreatedAt(strOrNull(m.get("createdAt")));
+        e.setUpdatedAt(strOrNull(m.get("updatedAt")));
+        return e;
+    }
+
+    private Map<String, Object> orderToMap(OrderEntity o) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", o.getId());
+        m.put("customer", o.getCustomer());
+        m.put("amount", o.getAmount());
+        m.put("status", o.getStatus());
+        m.put("orderStatus", o.getStatus());
+        m.put("items", o.getItems());
+        m.put("date", o.getDate());
+        m.put("createdAt", o.getCreatedAt());
+        m.put("updatedAt", o.getUpdatedAt());
+        m.put("trackingNumber", o.getTrackingNumber());
+        m.put("paymentMethod", o.getPaymentMethod());
+        m.put("shippingAddress", parseJsonMap(o.getShippingAddressJson()));
+        return m;
+    }
+
+    private OrderEntity mapToOrderEntity(Map<String, Object> m, String storeSlug) {
+        Map<String, Object> store = storesBySlug.get(storeSlug);
+        String storeId = store != null ? String.valueOf(store.get("id")) : storeSlug;
+        OrderEntity e = new OrderEntity();
+        e.setId(String.valueOf(m.get("id")));
+        e.setStoreId(storeId);
+        e.setStoreSlug(storeSlug);
+        e.setCustomer(strOrNull(m.get("customer")));
+        e.setAmount(m.get("amount") instanceof Number n ? n.doubleValue() : 0.0);
+        e.setStatus(strOrNull(m.get("status")));
+        e.setItems(m.get("items") instanceof Number n ? n.intValue() : 0);
+        e.setDate(strOrNull(m.get("date")));
+        e.setCreatedAt(strOrNull(m.get("createdAt")));
+        e.setUpdatedAt(strOrNull(m.get("updatedAt")));
+        e.setTrackingNumber(strOrNull(m.get("trackingNumber")));
+        e.setPaymentMethod(strOrNull(m.get("paymentMethod")));
+        e.setShippingAddressJson(toJsonString(m.get("shippingAddress")));
+        return e;
+    }
+
+    private Map<String, Object> couponToMap(CouponEntity c) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", c.getId());
+        m.put("storeId", c.getStoreId());
+        m.put("code", c.getCode());
+        m.put("discountType", c.getDiscountType());
+        m.put("discountValue", c.getDiscountValue());
+        m.put("minOrderAmount", c.getMinOrderAmount());
+        m.put("maxUses", c.getMaxUses());
+        m.put("usedCount", c.getUsedCount());
+        m.put("isActive", c.getIsActive());
+        m.put("expiresAt", c.getExpiresAt());
+        m.put("createdAt", c.getCreatedAt());
+        return m;
+    }
+
+    private CouponEntity mapToCouponEntity(Map<String, Object> m) {
+        CouponEntity e = new CouponEntity();
+        e.setId(String.valueOf(m.get("id")));
+        e.setStoreId(String.valueOf(m.get("storeId")));
+        e.setCode(String.valueOf(m.get("code")));
+        e.setDiscountType(strOrNull(m.get("discountType")));
+        e.setDiscountValue(m.get("discountValue") instanceof Number n ? n.doubleValue() : 0.0);
+        e.setMinOrderAmount(m.get("minOrderAmount") instanceof Number n ? n.doubleValue() : 0.0);
+        e.setMaxUses(m.get("maxUses") instanceof Number n ? n.intValue() : 0);
+        e.setUsedCount(m.get("usedCount") instanceof Number n ? n.intValue() : 0);
+        e.setIsActive(Boolean.TRUE.equals(m.get("isActive")));
+        e.setExpiresAt(strOrNull(m.get("expiresAt")));
+        e.setCreatedAt(strOrNull(m.get("createdAt")));
+        return e;
+    }
+
+    // ── JSON helpers ──────────────────────────────────────────────────────────
+
+    @SuppressWarnings("unchecked")
+    private List<Object> parseJsonList(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<Object>>() {});
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private Map<String, Object> parseJsonMap(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    private String toJsonString(Object value) {
+        if (value == null) return "[]";
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return "[]";
+        }
+    }
+
+    private static String strOrNull(Object o) {
+        if (o == null || "null".equals(String.valueOf(o))) return null;
+        return String.valueOf(o);
     }
 
     private static int toInt(String value, int fallback) {
