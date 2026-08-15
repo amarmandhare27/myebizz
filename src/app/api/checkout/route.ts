@@ -4,11 +4,9 @@ import { CheckoutFormData } from "@/lib/validators";
 import { CartItem } from "@/types";
 
 export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ storeSlug: string }> }
+  request: NextRequest
 ) {
   try {
-    const { storeSlug } = await params;
     const body = await request.json();
 
     const {
@@ -18,6 +16,7 @@ export async function POST(
       paymentIntentId,
       razorpayPaymentId,
       paymentMethod,
+      storeSlug,
     }: {
       checkoutData: CheckoutFormData;
       items: CartItem[];
@@ -25,6 +24,7 @@ export async function POST(
       paymentIntentId?: string;
       razorpayPaymentId?: string;
       paymentMethod: "stripe" | "razorpay" | "cod";
+      storeSlug: string;
     } = body;
 
     // Validate required fields
